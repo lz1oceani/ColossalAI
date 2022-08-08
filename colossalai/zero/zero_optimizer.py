@@ -31,8 +31,8 @@ class ZeroOptimizer(ColossalaiOptimizer):
     Args:
         optim (Optimizer): An Optimizer instance.
         module (ZeroDDP): A ``ZeroDDP`` instance.
-        gpu_margin_mem_ratio (float, optional): The ratio of GPU remaining memory (after the first forward-backward) 
-            which will be used when using hybrid CPU optimizer. 
+        gpu_margin_mem_ratio (float, optional): The ratio of GPU remaining memory (after the first forward-backward)
+            which will be used when using hybrid CPU optimizer.
             This argument is meaningless when `placement_policy` of `GeminiManager` is not "auto".
             Defaults to 0.0.
         initial_scale (float, optional): Initial scale used by DynamicGradScaler. Defaults to 2**32.
@@ -42,19 +42,21 @@ class ZeroOptimizer(ColossalaiOptimizer):
         growth_interval (float, optional): growth_interval used by DynamicGradScaler. Defaults to 1000.
         hysteresis (float, optional): hysteresis used by DynamicGradScaler. Defaults to 2.
         max_scale (int, optional): max_scale used by DynamicGradScaler. Defaults to 2**32.
-        """
+    """
 
-    def __init__(self,
-                 optim: Optimizer,
-                 module: ZeroDDP,
-                 gpu_margin_mem_ratio: float = 0.0,
-                 initial_scale: float = 2**32,
-                 min_scale: float = 1,
-                 growth_factor: float = 2,
-                 backoff_factor: float = 0.5,
-                 growth_interval: int = 1000,
-                 hysteresis: int = 2,
-                 max_scale: float = 2**32):
+    def __init__(
+        self,
+        optim: Optimizer,
+        module: ZeroDDP,
+        gpu_margin_mem_ratio: float = 0.0,
+        initial_scale: float = 2**32,
+        min_scale: float = 1,
+        growth_factor: float = 2,
+        backoff_factor: float = 0.5,
+        growth_interval: int = 1000,
+        hysteresis: int = 2,
+        max_scale: float = 2**32,
+    ):
         super().__init__(optim)
         assert isinstance(module, ZeroDDP)
         self.module = module
@@ -66,23 +68,26 @@ class ZeroOptimizer(ColossalaiOptimizer):
             self.fp16_param_to_fp32_param[p] = fp32_p
 
         # Grad scaler
-        self.grad_scaler = DynamicGradScaler(initial_scale=initial_scale,
-                                             min_scale=min_scale,
-                                             growth_factor=growth_factor,
-                                             backoff_factor=backoff_factor,
-                                             growth_interval=growth_interval,
-                                             hysteresis=hysteresis,
-                                             max_scale=max_scale)
+        self.grad_scaler = DynamicGradScaler(
+            initial_scale=initial_scale,
+            min_scale=min_scale,
+            growth_factor=growth_factor,
+            backoff_factor=backoff_factor,
+            growth_interval=growth_interval,
+            hysteresis=hysteresis,
+            max_scale=max_scale,
+        )
         self._found_overflow: torch.Tensor = torch.zeros(1, dtype=torch.int64, device=torch.cuda.current_device())
         self._logger = get_dist_logger()
 
         self.gpu_margin_mem_ratio: float = float(gpu_margin_mem_ratio)
-        assert 0.0 <= self.gpu_margin_mem_ratio <= 1.0, f'gpu_margin_mem_ratio must >=0.0 and <=1.0'
+        assert 0.0 <= self.gpu_margin_mem_ratio <= 1.0, f"gpu_margin_mem_ratio must >=0.0 and <=1.0"
         # Only move fp32 shards from CPU to GPU when user allows and inner optimizer is valid
         # Inner optimizer must support optimizing hybrid (CPU and CUDA) tensors,
         # and it must set `num_fp32_shards_per_param` correctly
-        self._should_move_fp32_params_h2d: bool = self.gemini_manager.is_cuda_margin_mem_avail and self.gpu_margin_mem_ratio > 0.0 and getattr(
-            optim, 'num_fp32_shards_per_param', 0) >= 2
+        self._should_move_fp32_params_h2d: bool = (
+            self.gemini_manager.is_cuda_margin_mem_avail and self.gpu_margin_mem_ratio > 0.0 and getattr(optim, "num_fp32_shards_per_param", 0) >= 2
+        )
         if self.gpu_margin_mem_ratio > 0.0 and not self.gemini_manager.is_cuda_margin_mem_avail:
             self._logger.warning(f'gpu_margin_mem_ratio is meaningless when placement_policy is not "auto"', ranks=[0])
 
@@ -90,14 +95,14 @@ class ZeroOptimizer(ColossalaiOptimizer):
 
     def _update_params_ptr(self):
         for group in self.optim.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 if not self.module.chunk_manager.get_chunk(p).is_empty:
                     p.data = self.fp16_param_to_fp32_param[p]
                 else:
                     assert p.grad is None
 
     def _update_fp16_params(self):
-        self.module.chunk_manager.copy_chunk_group('fp16_param', 'fp32_param')
+        self.module.chunk_manager.copy_chunk_group("fp16_param", "fp32_param")
 
     def _check_overflow(self):
         # clear previous overflow record
@@ -111,7 +116,7 @@ class ZeroOptimizer(ColossalaiOptimizer):
     def _unscale_grads(self):
         assert self.optim_state == OptimState.SCALED
         for group in self.optim.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 if p.grad is not None:
                     p.grad.data.div_(self.loss_scale)
         self.optim_state = OptimState.UNSCALED
@@ -132,7 +137,7 @@ class ZeroOptimizer(ColossalaiOptimizer):
         found_inf = self._check_overflow()
         self.grad_scaler.update(found_inf)
         if found_inf:
-            self._logger.info(f'Found overflow. Skip step')
+            self._logger.info(f"Found overflow. Skip step")
             self.zero_grad()
             self._update_fp16_params()
             return
@@ -167,8 +172,9 @@ class ZeroOptimizer(ColossalaiOptimizer):
             available_cuda_margin_mem = self.gemini_manager.cuda_margin_mem * self.gpu_margin_mem_ratio
             fp32_params_available_cuda_margin_mem = available_cuda_margin_mem / self.optim.num_fp32_shards_per_param
             fp32_params_used_cuda_margin_mem = 0
-            for fp16_param_chunk, fp32_param_chunk in zip(self.chunk_manager.chunk_groups['fp16_param'],
-                                                          self.chunk_manager.chunk_groups['fp32_param']):
+            for fp16_param_chunk, fp32_param_chunk in zip(
+                self.chunk_manager.chunk_groups["fp16_param"], self.chunk_manager.chunk_groups["fp32_param"]
+            ):
                 if fp32_param_chunk.is_empty:
                     continue
                 if fp32_params_used_cuda_margin_mem + fp32_param_chunk.mem < fp32_params_available_cuda_margin_mem:
@@ -187,7 +193,7 @@ class ZeroOptimizer(ColossalaiOptimizer):
 
     def _register_states_(self):
         for group in self.optim.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 state = self.optim.state[p]
                 for val in state.values():
                     if isinstance(val, torch.Tensor):
@@ -209,25 +215,27 @@ class ZeroOptimizer(ColossalaiOptimizer):
             return
         optim_state_dict = super().state_dict()
         scaler_state_dict = self.grad_scaler.state_dict()
-        optim_state_dict['scaler'] = scaler_state_dict
+        optim_state_dict["scaler"] = scaler_state_dict
         if not self.chunk_manager.enable_distributed_storage:
             return optim_state_dict
-        local_state = {k: convert_state_dict_to_cpu(v) for k, v in optim_state_dict['state'].items() if len(v) > 0}
+        local_state = {k: convert_state_dict_to_cpu(v) for k, v in optim_state_dict["state"].items() if len(v) > 0}
         if not self.chunk_manager.process_group.has_cpu_groups:
             self.chunk_manager.process_group.set_cpu_groups()
         output = [None for _ in range(self.chunk_manager.process_group.dp_world_size())]
         if only_rank_0:
             dst_rank = self.chunk_manager.process_group.dp_rank_list()[0]
-            dist.gather_object(local_state,
-                               output if self.chunk_manager.process_group.dp_local_rank() == 0 else None,
-                               dst=dst_rank,
-                               group=self.chunk_manager.process_group.cpu_dp_process_group())
+            dist.gather_object(
+                local_state,
+                output if self.chunk_manager.process_group.dp_local_rank() == 0 else None,
+                dst=dst_rank,
+                group=self.chunk_manager.process_group.cpu_dp_process_group(),
+            )
             if not is_rank_0:
                 return
         else:
             dist.all_gather_object(output, local_state, group=self.chunk_manager.process_group.cpu_dp_process_group())
         for state in output:
-            optim_state_dict['state'].update(state)
+            optim_state_dict["state"].update(state)
         return optim_state_dict
 
     def load_state_dict(self, state_dict):
@@ -237,28 +245,26 @@ class ZeroOptimizer(ColossalaiOptimizer):
             state_dict (dict): optimizer state. Should be an object returned
                 from a call to :meth:`state_dict`.
         """
-        if 'scaler' not in state_dict:
-            self._logger.warning('Missing scaler when loading optimizer state dict', ranks=[0])
+        if "scaler" not in state_dict:
+            self._logger.warning("Missing scaler when loading optimizer state dict", ranks=[0])
         else:
-            self.grad_scaler.load_state_dict(deepcopy(state_dict['scaler']))
+            self.grad_scaler.load_state_dict(deepcopy(state_dict["scaler"]))
 
         # Validate the state_dict
         groups = self.param_groups
-        saved_groups = deepcopy(state_dict['param_groups'])
+        saved_groups = deepcopy(state_dict["param_groups"])
 
         if len(groups) != len(saved_groups):
-            raise ValueError("loaded state dict has a different number of "
-                             "parameter groups")
-        param_lens = (len(g['params']) for g in groups)
-        saved_lens = (len(g['params']) for g in saved_groups)
+            raise ValueError("loaded state dict has a different number of " "parameter groups")
+        param_lens = (len(g["params"]) for g in groups)
+        saved_lens = (len(g["params"]) for g in saved_groups)
         if any(p_len != s_len for p_len, s_len in zip(param_lens, saved_lens)):
-            raise ValueError("loaded state dict contains a parameter group "
-                             "that doesn't match the size of optimizer's group")
+            raise ValueError("loaded state dict contains a parameter group " "that doesn't match the size of optimizer's group")
 
         # Update the state
         id_map = {
-            old_id: p for old_id, p in zip(chain.from_iterable((g['params'] for g in saved_groups
-                                                               )), chain.from_iterable((g['params'] for g in groups)))
+            old_id: p
+            for old_id, p in zip(chain.from_iterable((g["params"] for g in saved_groups)), chain.from_iterable((g["params"] for g in groups)))
         }
 
         def cast(param, value):
@@ -281,7 +287,7 @@ class ZeroOptimizer(ColossalaiOptimizer):
         # State that is not assigned to params is copied as is (needed for
         # backward compatibility).
         state = defaultdict(dict)
-        for k, v in state_dict['state'].items():
+        for k, v in state_dict["state"].items():
             if k in id_map:
                 param = self.fp16_param_to_fp32_param[id_map[k]]
                 if param.storage().size() > 0:
@@ -291,11 +297,11 @@ class ZeroOptimizer(ColossalaiOptimizer):
 
         # Update parameter groups, setting their 'params' value
         def update_group(group, new_group):
-            new_group['params'] = group['params']
+            new_group["params"] = group["params"]
             return new_group
 
         param_groups = [update_group(g, ng) for g, ng in zip(groups, saved_groups)]
-        self.__setstate__({'state': state, 'param_groups': param_groups})
+        self.__setstate__({"state": state, "param_groups": param_groups})
 
 
 def convert_state_dict_to_cpu(state: Dict[str, torch.Tensor]):

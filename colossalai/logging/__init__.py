@@ -3,23 +3,23 @@ from typing import List, Optional
 
 from .logger import DistributedLogger
 
-__all__ = ['get_dist_logger', 'DistributedLogger', 'disable_existing_loggers']
+__all__ = ["get_dist_logger", "DistributedLogger", "disable_existing_loggers"]
 
 
-def get_dist_logger(name: str = 'colossalai') -> DistributedLogger:
+def get_dist_logger(name: str = "colossalai") -> DistributedLogger:
     """Get logger instance based on name. The DistributedLogger will create singleton instances,
     which means that only one logger instance is created per name.
 
     Args:
         name (str): name of the logger, name must be unique
-    
+
     Returns:
         :class:`colossalai.logging.DistributedLogger`: A distributed logger singleton instance.
     """
     return DistributedLogger.get_instance(name=name)
 
 
-def disable_existing_loggers(include: Optional[List[str]] = None, exclude: List[str] = ['colossalai']) -> None:
+def disable_existing_loggers(include: Optional[List[str]] = None, exclude: List[str] = ["colossalai"]) -> None:
     """Set the level of existing loggers to `WARNING`. By default, it will "disable" all existing loggers except the logger named "colossalai".
 
     Args:
@@ -35,4 +35,4 @@ def disable_existing_loggers(include: Optional[List[str]] = None, exclude: List[
 
     for log_name in logging.Logger.manager.loggerDict.keys():
         if filter_func(log_name):
-            logging.getLogger(log_name).setLevel(logging.WARNING)
+            logging.getLogger(log_name).setLevel(logging.ERROR)
