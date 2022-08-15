@@ -107,7 +107,7 @@ def load_checkpoint(
             gather_tensor(p)
 
     if rank == 0:
-        load_state = torch.load(path + "/epoch_{}_model.pth".format(epoch), **torch_load_kwargs)
+        load_state = torch.load(path + "/step_{}_model.pth".format(epoch), **torch_load_kwargs)
         model.load_state_dict(load_state["model"], **load_state_dict_kwargs)
     dist.barrier()
 
@@ -129,7 +129,7 @@ def load_checkpoint(
                     gather_tensor(t)
 
         if rank == 0:
-            colo_checkpoint = torch.load(path + "/epoch_{}_optim.pth".format(epoch), **torch_load_kwargs)
+            colo_checkpoint = torch.load(path + "/step_{}_optim.pth".format(epoch), **torch_load_kwargs)
             optimizer.load_state_dict(colo_checkpoint["optim"], **load_state_dict_kwargs)
         dist.barrier()
 
