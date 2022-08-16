@@ -129,7 +129,12 @@ class DistributedLogger:
             getattr(self._logger, level)(message)
             self.flush()
         else:
-            local_rank = colossalai.core.global_context.get_local_rank(parallel_mode)
+            try:
+                local_rank = colossalai.core.global_context.get_local_rank(parallel_mode)
+            except KeyError:
+                # For single process
+                local_rank = 0
+                ranks = [0]
             if local_rank in ranks:
                 getattr(self._logger, level)(message)
                 self.flush()
